@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Real-time Weather Dashboard</title>
+  <style>
+    :root{
+      --bg:#0f1724;
+      --card:#0b1220;
+      --muted:#9aa6b2;
+      --accent:#60a5fa;
+      --glass: rgba(255,255,255,0.03);
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071024 0%, #071826 100%);color:#e6eef6}
+    .container{max-width:980px;margin:32px auto;padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:8px;align-items:center}
+    input[type=text]{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:var(--glass);color:inherit;outline:none;width:220px}
+    button{padding:10px 12px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent),#3b82f6);color:#022;cursor:pointer}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));backdrop-filter: blur(6px);padding:18px;border-radius:14px;box-shadow:0 6px 18px rgba(2,6,23,0.6);}
+
+    .main-grid{display:grid;grid-template-columns: 1fr 320px;gap:16px}
+    .current{display:flex;gap:18px;align-items:center}
+    .left{flex:1}
+    .temp{font-size:48px;font-weight:700}
+    .desc{font-size:14px;color:var(--muted)}
+    .meta{display:flex;gap:12px;margin-top:8px;color:var(--muted);font-size:13px}
+    .icon{width:108px;height:108px}
+
+    .sidebar{display:flex;flex-direction:column;gap:12px}
+    .tile{padding:12px;border-radius:10px;background:rgba(255,255,255,0.015)}
+
+    .forecast{display:flex;overflow:auto;gap:10px;padding:8px 2px}
+    .hour{min-width:72px;background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;text-align:center}
+    .hour small{color:var(--muted);display:block}
+
+    .daily{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .day{padding:10px;border-radius:8px;background:rgba(255,255,255,0.01);display:flex;justify-content:space-between;align-items:center}
+
+    .footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
+
+    @media (max-width:880px){
+      .main-grid{grid-template-columns:1fr;}
+      input[type=text]{width:140px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Weather — Real-time & Location-based</h1>
+      <div class="controls">
+        <input id="cityInput" type="text" placeholder="Search city" />
+        <button id="searchBtn">Search</button>
+        <button id="locBtn">Use My Location</button>
+      </div>
+    </header>
+
+    <div class="card main-grid">
+      <section class="left-col">
+        <div class="current" id="currentCard">
+          <div class="left">
+            <div>
+              <div class="temp" id="temp">--°C</div>
+              <div class="desc" id="condition">—</div>
+            </div>
+            <div class="meta" id="meta">
+              <div id="location">Location: —</div>
+              <div id="feels">Feels like: —</div>
+              <div id="humidity">Humidity: —</div>
+            </div>
+          </div>
+          <div>
+            <img id="weatherIcon" class="icon" src="" alt="icon" />
+          </div>
+        </div>
+
+        <div style="margin-top:14px" class="tile">
+          <strong>5-Day Forecast</strong>
+          <div class="daily" id="daily"></div>
+        </div>
+      </section>
+
+      <aside class="sidebar">
+        <div class="tile">
+          <strong>Quick info</strong>
+          <div style="margin-top:8px">Wind: <span id="wind">—</span></div>
+          <div>Pressure: <span id="pressure">—</span></div>
+        </div>
+        <div class="tile">
+          <strong>Notes</strong>
+          <div style="margin-top:8px;color:var(--muted);font-size:13px">This demo uses OpenWeatherMap free endpoints. Replace <code>YOUR_API_KEY</code> in the script with your API key.</div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="footer">Built with OpenWeatherMap API — Demo</div>
+  </div>
+
+  <script>
+    const API_KEY = 'ba0cf2c899ee97039fe4ab439b48e235';
+    const elems = {
+      temp: document.getElementById('temp'),
+      condition: document.getElementById('condition'),
+      location: document.getElementById('location'),
+      feels: document.getElementById('feels'),
+      humidity: document.getElementById('humidity'),
+      weatherIcon: document.getElementById('weatherIcon'),
+      daily: document.getElementById('daily'),
+      wind: document.getElementById('wind'),
+      pressure: document.getElementById('pressure'),
+    };
+
+    document.getElementById('locBtn').addEventListener('click', () => getLocationWeather());
+    document.getElementById('searchBtn').addEventListener('click', searchCity);
+
+    function showError(msg){ alert(msg); }
+
+    async function getLocationWeather(){
+      if (!navigator.geolocation){
+        showError('Geolocation not supported. Use city search.');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude; const lon = pos.coords.longitude;
+        await fetchWeatherByCoords(lat, lon);
+      }, () => showError('Location permission denied. Use city search.'));
+    }
+
+    async function searchCity(){
+      const q = document.getElementById('cityInput').value.trim();
+      if (!q) return alert('Enter a city name.');
+      try{
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(q)}&appid=${API_KEY}&units=metric`);
+        if (!res.ok) throw new Error('City not found');
+        const data = await res.json();
+        await fetchWeatherByCoords(data.coord.lat, data.coord.lon, `${data.name}, ${data.sys.country}`);
+      }catch(e){
+        showError('City lookup failed.');
+      }
+    }
+
+    async function fetchWeatherByCoords(lat, lon, locationName=null){
+      try{
+        // Current weather
+        const currentRes = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`);
+        const curr = await currentRes.json();
+
+        elems.temp.textContent = Math.round(curr.main.temp) + '°C';
+        elems.condition.textContent = curr.weather?.[0]?.description || '—';
+        elems.feels.textContent = `Feels like: ${Math.round(curr.main.feels_like)}°C`;
+        elems.humidity.textContent = `Humidity: ${curr.main.humidity}%`;
+        elems.location.textContent = `Location: ${locationName ?? curr.name}`;
+        elems.weatherIcon.src = `https://openweathermap.org/img/wn/${curr.weather?.[0]?.icon}@4x.png`;
+        elems.wind.textContent = `${curr.wind.speed} m/s`;
+        elems.pressure.textContent = `${curr.main.pressure} hPa`;
+
+        // Forecast (5-day / 3-hour step)
+        const forecastRes = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`);
+        const forecast = await forecastRes.json();
+
+        // Group forecast by day
+        const days = {};
+        forecast.list.forEach(item => {
+          const date = new Date(item.dt * 1000).toLocaleDateString([], {weekday:'short'});
+          if (!days[date]) days[date] = [];
+          days[date].push(item);
+        });
+
+        elems.daily.innerHTML = '';
+        Object.keys(days).slice(0,5).forEach(day => {
+          const temps = days[day].map(i => i.main.temp);
+          const min = Math.round(Math.min(...temps));
+          const max = Math.round(Math.max(...temps));
+          const icon = days[day][0].weather[0].icon;
+          const desc = days[day][0].weather[0].description;
+          const el = document.createElement('div');
+          el.className='day';
+          el.innerHTML = `<div><strong>${day}</strong><div style="color:var(--muted);font-size:12px">${desc}</div></div><div style="text-align:right"><div>${max}° / ${min}°</div><img src="https://openweathermap.org/img/wn/${icon}.png" alt="icon"></div>`;
+          elems.daily.appendChild(el);
+        });
+      }catch(e){
+        showError('Failed to fetch weather.');
+      }
+    }
+  </script>
+</body>
+</html>
